@@ -34,6 +34,11 @@ type bignum = {neg : bool; coeffs : int list} ;;
    submitting, have `cBASE` be 1000, as it is here. *)
   
 let cBASE = 1000 ;;
+
+let rec concat (l1,l2) =
+  match l1 with
+  [] -> l2
+  | (h::t) -> h::(concat (t,l2));;
   
 (*......................................................................
 Problem 1: Negation
@@ -41,7 +46,11 @@ Problem 1: Negation
 
 (* negate b -- Returns a `bignum` that is the negation of `b`. *) 
 let negate (b : bignum) : bignum =
-  failwith "negate not implemented" ;;
+  if b.coeffs = [] then b
+  else if b.coeffs = [0] then b
+  else
+  let {neg = n; coeffs = c} = b in
+  {neg = not n; coeffs = c};;
 
 (*......................................................................
 Problem 2: Comparing bignums
@@ -49,32 +58,67 @@ Problem 2: Comparing bignums
   
 (* equal b1 b2 -- Predicate returns `true` if and only if `b1` and
    `b2` represent the same number. *)
-let equal (b1 : bignum) (b2 : bignum) : bool =
-  failwith "equal not implemented" ;;
+let rec equal (b1 : bignum) (b2 : bignum) : bool =
+  let {neg = n1; coeffs = c1} = b1 in
+  let {neg = n2; coeffs = c2} = b2 in
+  if n1 != n2 then false
+  else 
+  match c1, c2 with
+  | [], [] -> true
+  | [], _ -> false
+  | _, [] -> false
+  | h1 :: t1, h2 :: t2 -> (equal({neg = false; coeffs = t1})({neg = false; coeffs = t2})) ;;
 
 (* less b1 b2 -- Predicate returns `true` if and only if `b1`
    represents a smaller number than `b2`. *)
-let less (b1 : bignum) (b2 : bignum) : bool =
-  failwith "less not implemented" ;;
+let rec less (b1 : bignum) (b2 : bignum) : bool =
+  let {neg = n1; coeffs = c1} = b1 in
+  let {neg = n2; coeffs = c2} = b2 in
+  if n1 && (not n2) then n2 
+  else if not n1 && n2 then n2
+  else if List.length (c1) < List.length (c2) then not n1
+  else match (c1, c2) with
+  | [], [] -> false
+  | _, [] -> n1
+  | [], _ -> not n1
+  | h1 :: t1, h2 :: t2 -> if h1 < h2 then not n1 
+  else if h2 > h1 then n1 
+  else less ({neg = n1; coeffs = t1})({neg = n2; coeffs = t2})
+  ;;
 
 (* greater b1 b2 -- Predicate returns `true` if and only if `b1`
    represents a larger number than `b2`. *)
 let greater (b1 : bignum) (b2 : bignum) : bool =
-  failwith "greater not implemented" ;;
+  less (b2) (b1);;
 
 (*......................................................................
 Problem 3: Converting to and from bignums
 ......................................................................*)
 
 (* from_int n -- Returns a bignum representing the integer `n`. *)
-let from_int (n : int) : bignum =
-  failwith "from_int not implemented" ;;
+let rec from_int (n : int) : bignum =
+  let nn = if n > 0 then 1 else -1 in
+  if (nn * n < cBASE) then {neg = if n < 0 then true else false; coeffs = [nn * n]}
+  else let {neg = _; coeffs = b} = (from_int (nn * n / cBASE)) in
+  {neg = if n < 0 then true else false; coeffs = concat(b, [nn * n mod cBASE])}
+  ;;
      
 (* to_int b -- Returns `Some v`, where `v` is the `int` represented by
    the bignum `b`, if possible, or `None` if `b` represents an integer
    out of the representable range of the `int` type. *)
-let to_int (b : bignum) : int option =
-  failwith "to_int not implemented" ;;
+let rec to_int (b : bignum) : int option =
+  let {neg = n; coeffs = c} = b in
+  let nn = if n then -1 else 1 in
+  match c with
+  | [] -> Some 0
+  | [any] -> Some (any * nn)
+  | hd :: tl -> 
+  let num = nn * hd * int_of_float(float_of_int(cBASE) ** float_of_int(List.length(tl))) in
+  match to_int ({neg = n; coeffs = tl}) with
+  | None -> None
+  | Some x -> if ((num + x) < max_int) && ((num + x) > -max_int) 
+  then Some (num + x) else None 
+  ;;
 
 (*======================================================================
   Helpful functions (not to be used in problems 1 to 3)
@@ -153,7 +197,7 @@ let from_string (s : string) : bignum =
         {neg = true; coeffs = (List.rev (from_string_rec (List.rev t)))}
       else {neg = false;
             coeffs =
-              (trim_leading_zeroes (List.rev (from_string_rec (List.rev (h :: t)))))}
+              (trim_leading_zeroes (List.rev (from_string_rec (List.rev (h :: t)))))};;
 
 (* to_string b -- Converts a bignum `b` to its string representation.
    Returns a string beginning with `~` for negative integers. Assumes
@@ -244,7 +288,10 @@ your implementation preserves the bignum invariant.
 
 (* plus b1 b2 -- Returns the bignum sum of `b1` and `b2` *)
 let plus (b1 : bignum) (b2 : bignum) : bignum =
-  failwith "plus not implemented" ;;
+  let sum1 = plus_pos(b1)(b2) in
+  let sum2 = (plus_pos (negate(b1))(negate(b2))) in
+  if greater (sum1) (sum2) then negate(sum2)
+  else sum1;;
 
 (*......................................................................
 Problem 5
@@ -277,7 +324,27 @@ simplifies the code, as long as the invariant is preserved.
 
 (* times b1 b2 -- Returns the bignum product of `b1` and `b2` *)
 let times (b1 : bignum) (b2 : bignum) : bignum =
-  failwith "times not implemented" ;;
+  if equal (b1) (from_int(1)) && equal b1 b2 then from_int 1
+  else
+  let negativity = (b1.neg != b2.neg) in
+  
+  let rec addzeros (f1 : int list) (f2 : int) : int list =
+    if f2 > 0 then addzeros(f1 @ [0])(f2-1)
+    else f1 in
+
+  let rec summ (s1 : int list)(s2 : int)(s3 : bignum) : bignum = 
+    let s1b = {neg = false; coeffs = s1} in
+    if s2 = 0 then s3
+    else (summ(s1)(s2 - 1)(plus(s3)(s1b))) in
+  
+  let rec prod (c1 : int list) (c2 : int list) (c3 : bignum) : bignum = 
+    match c2 with
+    | [] -> from_int(0)
+    | [any] -> summ(c1)(any)(c3)
+    | hd :: tl -> (prod(c1)(tl)(plus({neg = false; coeffs = addzeros((summ(c1)(hd)(from_int(0))).coeffs)(List.length(tl))})(c3)))
+    in
+  {neg = negativity; coeffs = (prod(b1.coeffs)(b2.coeffs)(from_int(0))).coeffs}
+  ;;
 
 (*======================================================================
 Challenge Problem 6: Faster bignum multiplication 
@@ -287,7 +354,32 @@ Challenge Problem 6: Faster bignum multiplication
    `b1` and `b2`, making use of the Karatsuba algorithm for
    multiplication. *)
 let times_faster (b1 : bignum) (b2 : bignum) : bignum =
-  failwith "times_faster not implemented" ;;
+  let negativity = (b1.neg != b2.neg) in
+  let rec addzeros (f1 : int list) (f2 : int) : int list =
+  if f2 > 0 then addzeros(f1 @ [0])(f2-1)
+  else f1 in
+  let rec reverse (l: int list) =
+  match l with
+  [] -> []
+  | (h :: t) -> concat (reverse t, [h]) in
+  let x0, y0, x1, y1 = 
+  match reverse(b1.coeffs), reverse(b2.coeffs) with
+  |[a], h2 :: t2 -> [a], reverse(t2), 0, h2
+  |h1 :: t1, [b] -> reverse(t1), [b], h1, 0
+  |h1 :: t1, h2 :: t2 -> reverse(t1), reverse(t2), h1, h2
+  |a -> [0], [0], 0, 0 in
+  let x0b, y0b, x1b, y1b = 
+  {neg = false; coeffs = x0},
+  {neg = false; coeffs = y0},
+  {neg = false; coeffs = [x1]},
+  {neg = false; coeffs = [y1]} in
+  let z0, z1, z2 =
+  {neg = false; coeffs = addzeros((times x0b y0b).coeffs)(2)},
+  {neg = false; coeffs = addzeros((plus(times(x1b)(y0b))(times(x0b)(y1b))).coeffs)(1)},
+  {neg = false; coeffs = (times x1b y1b).coeffs} in
+  {neg = negativity; 
+  coeffs = (plus(plus z1 z2)(z0)).coeffs}
+  ;;
 
 (*======================================================================
 Reflection on the problem set
@@ -301,8 +393,7 @@ Please give us an honest (if approximate) estimate of how long (in
 minutes) this problem set took you to complete. 
 ......................................................................*)
 
-let minutes_spent_on_pset () : int =
-  failwith "time estimate not provided" ;;
+let minutes_spent_on_pset () : int = 300;;
 
 (*......................................................................
 It's worth reflecting on the work you did on this problem set. Where
@@ -314,4 +405,7 @@ below.
 ......................................................................*)
 
 let reflection () : string =
-  "...your reflections here..." ;;
+  "I think this was a tough Problem Set but it really helped to plan out everything.  I feel Like my solutions were far too brute-forced, but it worked out in my head - and eventually in practice." ;;
+
+
+(*let _ = Printf.printf("%s")(to_string(times({neg = true; coeffs = [12;43;14;312;432;13;21;37;1;294;0;361;93;274;6]})({neg = false; coeffs = [12;43;14;312;432;13;21;37;1;294;0;361;93;274;6]})));;*)
